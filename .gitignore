@@ -1,0 +1,6 @@
+# 검사기 상태 (세션마다 바뀜)
+.claude/.lint_state.json
+# Obsidian 설정·화면 상태 (각자 환경)
+.obsidian/
+.trash/
+.DS_Store
