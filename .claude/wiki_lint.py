@@ -77,6 +77,78 @@ def unprocessed_raw(pages):
     return out
 
 
+def system_names(path):
+    """바뀐 시스템 파일 → 위키 본문에서 찾을 이름. 대상이 아니면 None."""
+    if path == "CLAUDE.md":
+        return "CLAUDE.md"
+    m = re.match(r"\.claude/skills/([^/]+)/", path)
+    if m:
+        return m.group(1)
+    if path.startswith(".claude/rules/"):
+        return os.path.basename(path)
+    return {".claude/wiki_lint.py": "wiki_lint.py", ".claude/settings.json": "settings.json",
+            ".claude/agents/wiki-reviewer.md": "wiki-reviewer",
+            ".claude/sync_template.py": "sync_template.py"}.get(path)
+
+
+def dependents(pages):
+    """`wiki-verify` 1단계의 의존 확인: 커밋 안 된 변경(세션 시작 때 사용자 변경은 따로 커밋되므로 이 세션 작업)마다
+    그것에 기대는 페이지 중 이번에 손대지 않은 곳을 한 줄로 돌려준다. 그래프는 기존 데이터에서 뽑는다.
+    - 바뀐 wiki 페이지 X ← frontmatter `sources`에 X가 있는 페이지, X가 `요약-`이면 본문에서 X를 인용한 페이지도
+    - 바뀐 시스템 파일 ← 그 이름(스킬 이름, `wiki_lint.py` 등)을 언급한 concept·topic 등 (요약 페이지는 그 시점 기록이라 제외).
+      `CLAUDE.md`는 흔한 이름이라 '위키'·'볼트'와 같은 줄에 나올 때만"""
+    out_ = git("status", "--porcelain", "-z", "--untracked-files=all")
+    if not out_:
+        return []
+    changed, new = set(), set()
+    parts, skip = out_.split("\0"), False
+    for e in parts:
+        if skip or len(e) <= 3:
+            skip = False  # 이름 바꾸기(R·C)는 다음 조각이 옛 경로
+            continue
+        st, p = e[:2], e[3:]
+        skip = st[0] in "RC"
+        if p.startswith("wiki/") and p.endswith(".md"):
+            (new if st == "??" else changed).add(p[5:-3])
+        else:
+            changed.add(p)
+    touched = changed | new
+    out = []
+    srcs = {}
+    for k, t in pages.items():
+        fm, _ = split_fm(t)
+        sm = re.search(r"^sources: \[(.*)\]", fm or "", re.M)
+        srcs[k] = set(re.findall(r"\[\[([^\]|#]+)", sm.group(1))) if sm else set()
+    for x in sorted(changed):
+        if x in pages and x not in META:
+            deps = {k for k in pages if k not in META and k != x and x in srcs[k]}
+            if x.startswith("요약-"):
+                deps |= {k for k, t in pages.items() if k not in META and k != x and x in links(t)}
+            left = sorted(deps - touched)
+            if left:
+                out.append(f"{x} 변경 ← 기대는 페이지 중 이번에 안 고친 {len(left)}곳: " + ", ".join(left[:15])
+                           + (" …" if len(left) > 15 else "") + " → 바뀐 내용이 그 페이지의 주장에 닿는지 확인")
+            continue
+        name = system_names(x)
+        if not name:
+            continue
+        deps = set()
+        for k, t in pages.items():
+            if k in META or k.startswith("요약-"):
+                continue
+            if name == "CLAUDE.md":
+                hit = any("CLAUDE.md" in l and re.search(r"위키|볼트", l) for l in t.split("\n"))
+            else:
+                hit = name in t
+            if hit:
+                deps.add(k)
+        left = sorted(deps - touched)
+        if left:
+            out.append(f"{x} 변경 ← `{name}` 언급 페이지 중 이번에 안 고친 {len(left)}곳: " + ", ".join(left)
+                       + " → 이 위키를 설명하는 문장이 낡지 않았는지 확인")
+    return out
+
+
 def norm_quote(t):
     """인용 대조용 정규화: 마크다운 강조 기호·따옴표 종류·공백·대소문자 차이를 무시한다."""
     t = re.sub(r"[*`_]", "", t)
@@ -219,6 +291,10 @@ def lint(log_base=None):
             if n_src < 2 and n_in < 2:
                 (W if k in ENTITY_GRANDFATHERED else E)("[entity 생성 기준 미달]", k, f"자료 {n_src}건 · 들어오는 링크 {n_in}곳",
                   "→ 상위 페이지의 섹션으로 두고 섹션 링크를 건다")
+
+    # 9. 의존 확인 (판단 항목이라 WARN): 아직 커밋 안 된 변경(= 이 세션 작업)에 기대는 페이지 중 손대지 않은 곳
+    for line in dependents(pages):
+        W("[의존 확인]", line)
 
     # 6. 미처리 raw (사용자가 넣고 아직 넣기 전일 수 있어 WARN)
     for n in unprocessed_raw(pages):
