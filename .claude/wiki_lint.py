@@ -7,6 +7,7 @@
   python3 .claude/wiki_lint.py --session-start  # SessionStart hook: 세션 시작 시점 스냅샷
   python3 .claude/wiki_lint.py --review-done    # SubagentStop hook: wiki-reviewer 의미 검토 영수증
   python3 .claude/wiki_lint.py --pre-tool       # PreToolUse hook: raw/ 기존 파일 수정·하위 폴더 생성 거부
+  python3 .claude/wiki_lint.py --status SID     # 상태 JSON (읽기 전용, 상태 파일을 쓰지 않음 — 상태 표시 mod용)
 
 git (로컬 전용): 세션 시작 때 사용자 변경을 따로 커밋하고, Stop hook을 통과하면 이 세션 작업을 커밋한다.
 
@@ -469,6 +470,29 @@ def review_done(hook_in):
     sys.exit(0)
 
 
+def status(sid):
+    """상태 표시용 요약을 JSON으로 출력한다. 읽기 전용: 상태 파일·git을 바꾸지 않는다."""
+    state = load_state()
+    sess = state.get("sessions", {}).get(sid)
+    errors, warns, _ = lint((sess["log_len"], sess["log_sha"]) if sess else None)
+    pre = set(sess["pre"]) if sess else set()
+    review = "none"  # 이 세션이 바꾼 페이지 없음
+    if sess and "pages" in sess:
+        now = page_hashes()
+        if any(sess["pages"].get(n) != now[n] for n in now) or any(n not in now for n in sess["pages"]):
+            r = state.get("reviews", {}).get(content_fp(now))
+            review = "missing" if r is None else ("ok" if r == 0 else f"issues:{r}")
+    pages = {n[:-3]: read(os.path.join(WIKI, n)) for n in os.listdir(WIKI) if n.endswith(".md")}
+    print(json.dumps({
+        "errors": len(errors), "newErrors": len([e for e in errors if e not in pre]), "warns": len(warns),
+        "review": review, "loops": state.get("loops", {}).get(sid, 0), "maxLoops": MAX_LOOPS,
+        "unprocessedRaw": len(unprocessed_raw(pages)),
+        "rawChanged": len(raw_changes(sess["raw"])) if sess and "raw" in sess else 0,
+        "templateStale": len(template_stale()), "session": bool(sess),
+    }, ensure_ascii=False))
+    sys.exit(0)
+
+
 def block(state, sid, reason, count):
     loops = state.setdefault("loops", {})
     loops[sid] = loops.get(sid, 0) + 1
@@ -491,6 +515,9 @@ def block(state, sid, reason, count):
 
 
 def main():
+    if "--status" in sys.argv:
+        i = sys.argv.index("--status")
+        status(sys.argv[i + 1] if len(sys.argv) > i + 1 else "default")
     hook = "--hook" in sys.argv
     hook_in = {}
     if hook or any(a in sys.argv for a in ("--session-start", "--review-done", "--pre-tool")):
