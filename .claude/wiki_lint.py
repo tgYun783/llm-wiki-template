@@ -380,13 +380,38 @@ def session_start(hook_in):
     if notes:
         print("\n\n".join(notes))
     sys.exit(0)
+    
+def last_assistant_text(path):
+    """SubagentStop 입력에 last_assistant_message가 없을 때(백그라운드 하위 에이전트), 하위 에이전트
+    대화 기록(jsonl)에서 REVIEW-RESULT가 든 마지막 assistant 응답을 찾는다."""
+    if not path or not os.path.exists(path):
+        return ""
+    found = ""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if rec.get("type") != "assistant":
+                continue
+            content = (rec.get("message") or {}).get("content") or []
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            parts = [c.get("text", "") if c.get("type") == "text" else json.dumps(c.get("input", ""), ensure_ascii=False)
+                     for c in content if isinstance(c, dict) and c.get("type") in ("text", "tool_use")]
+            text = "\n".join(parts).replace("\\n", "\n")
+            if "REVIEW-RESULT:" in text:
+                found = text
+    return found
+
 
 
 def review_done(hook_in):
     """SubagentStop: wiki-reviewer가 끝나면 '이 위키 내용에 대해 문제 N건' 영수증을 남긴다."""
     if hook_in.get("agent_type") != REVIEWER:
         sys.exit(0)
-    msg = hook_in.get("last_assistant_message") or ""
+    msg = hook_in.get("last_assistant_message") or last_assistant_text(hook_in.get("agent_transcript_path"))
     m = re.search(r"REVIEW-RESULT: issues=(-?\d+)", msg)
     if not m:
         if not hook_in.get("stop_hook_active"):
