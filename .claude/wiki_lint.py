@@ -6,6 +6,7 @@
   python3 .claude/wiki_lint.py --hook   # Stop hook 모드 (stdin: hook JSON)
   python3 .claude/wiki_lint.py --session-start  # SessionStart hook: 세션 시작 시점 스냅샷
   python3 .claude/wiki_lint.py --review-done    # SubagentStop hook: wiki-reviewer 의미 검토 영수증
+  python3 .claude/wiki_lint.py --pre-tool       # PreToolUse hook: raw/ 기존 파일 수정·하위 폴더 생성 거부
 
 git (로컬 전용): 세션 시작 때 사용자 변경을 따로 커밋하고, Stop hook을 통과하면 이 세션 작업을 커밋한다.
 
@@ -283,6 +284,48 @@ def content_fp(hashes):
     return sha(json.dumps(hashes, sort_keys=True))
 
 
+def raw_hashes():
+    """raw/ 파일별 내용 해시 (이미지·PDF 포함). 세션 중 기존 raw가 바뀌었는지 판단한다 (절대 규칙 1)."""
+    out = {}
+    for n in sorted(os.listdir(RAW)):
+        p = os.path.join(RAW, n)
+        if os.path.isfile(p):
+            with open(p, "rb") as f:
+                out[n] = hashlib.sha256(f.read()).hexdigest()
+    return out
+
+
+def raw_changes(before):
+    """세션 시작 때 있던 raw 파일 중 바뀌거나 사라진 것. 새로 생긴 파일은 넣기 1단계·녹음 가져오기 등 정상 입력이라 뺀다."""
+    now = raw_hashes()
+    return ([f"수정: raw/{n}" for n in sorted(before) if n in now and now[n] != before[n]]
+            + [f"삭제·이동: raw/{n}" for n in sorted(before) if n not in now])
+
+
+def pre_tool(hook_in):
+    """PreToolUse: 파일 쓰기 도구가 raw/의 기존 파일을 고치거나 raw/ 안에 하위 폴더를 만들려 하면 거부한다.
+    새 파일 저장(넣기 1단계)은 허용한다. Bash 경유 변경은 여기서 못 잡으니 Stop hook이 사후에 잡는다."""
+    ti = hook_in.get("tool_input") or {}
+    path = ti.get("file_path") or ti.get("notebook_path")
+    if not path:
+        sys.exit(0)
+    raw = os.path.realpath(RAW)
+    p = os.path.realpath(path if os.path.isabs(path) else os.path.join(hook_in.get("cwd") or ROOT, path))
+    if not p.startswith(raw + os.sep):
+        sys.exit(0)
+    why = None
+    if os.path.dirname(p) != raw:
+        why = "raw/ 안에 하위 폴더를 만들 수 없다 (절대 규칙 2). raw/에 평평하게 `YYYY-MM-DD_설명` 파일로 둔다."
+    elif os.path.lexists(p):
+        why = ("raw/는 불변이다 (절대 규칙 1). 기존 raw 파일은 수정·덮어쓰기할 수 없다. "
+               "오타·파일명 문제는 사용자에게 알리기만 하라.")
+    if why:
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny",
+            "permissionDecisionReason": f"[위키 raw 보호] {why} ({os.path.relpath(p, ROOT)})"}}, ensure_ascii=False))
+    sys.exit(0)
+
+
 def template_stale():
     """공개 템플릿 동기화 스크립트(.claude/sync_template.py)가 있으면, 템플릿에 반영 안 된 시스템 파일 목록."""
     path = os.path.join(ROOT, ".claude", "sync_template.py")
@@ -320,12 +363,12 @@ def git_commit(message):
     return git("add", "-A") is not None and git("commit", "-q", "-m", message) is not None
 
 
-def commit_session_work():
+def commit_session_work(prefix=""):
     """Stop 통과 시: 이 세션의 위키 작업을 커밋. 제목은 새로 추가된 마지막 log 항목."""
     diff = git("diff", "HEAD", "--", "wiki/log.md") or ""
     heads = [l[1:].strip() for l in diff.split("\n") if l.startswith("+## [")]
     title = heads[-1][3:] if heads else "위키 작업 저장"
-    return git_commit(f"{title}\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
+    return git_commit(f"{prefix}{title}\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
 
 
 def mark_clean(state, log, reset_loops=True):
@@ -361,7 +404,7 @@ def session_start(hook_in):
     errors, _, log = lint()
     sessions[sid] = {
         "fp": wiki_fingerprint(), "pre": errors, "log_len": len(log), "log_sha": sha(log),
-        "pages": page_hashes(),
+        "pages": page_hashes(), "raw": raw_hashes(),
     }
     for old in list(sessions)[:-20]:
         del sessions[old]
@@ -380,13 +423,38 @@ def session_start(hook_in):
     if notes:
         print("\n\n".join(notes))
     sys.exit(0)
+    
+def last_assistant_text(path):
+    """SubagentStop 입력에 last_assistant_message가 없을 때(백그라운드 하위 에이전트), 하위 에이전트
+    대화 기록(jsonl)에서 REVIEW-RESULT가 든 마지막 assistant 응답을 찾는다."""
+    if not path or not os.path.exists(path):
+        return ""
+    found = ""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if rec.get("type") != "assistant":
+                continue
+            content = (rec.get("message") or {}).get("content") or []
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            parts = [c.get("text", "") if c.get("type") == "text" else json.dumps(c.get("input", ""), ensure_ascii=False)
+                     for c in content if isinstance(c, dict) and c.get("type") in ("text", "tool_use")]
+            text = "\n".join(parts).replace("\\n", "\n")
+            if "REVIEW-RESULT:" in text:
+                found = text
+    return found
+
 
 
 def review_done(hook_in):
     """SubagentStop: wiki-reviewer가 끝나면 '이 위키 내용에 대해 문제 N건' 영수증을 남긴다."""
     if hook_in.get("agent_type") != REVIEWER:
         sys.exit(0)
-    msg = hook_in.get("last_assistant_message") or ""
+    msg = hook_in.get("last_assistant_message") or last_assistant_text(hook_in.get("agent_transcript_path"))
     m = re.search(r"REVIEW-RESULT: issues=(-?\d+)", msg)
     if not m:
         if not hook_in.get("stop_hook_active"):
@@ -425,7 +493,7 @@ def block(state, sid, reason, count):
 def main():
     hook = "--hook" in sys.argv
     hook_in = {}
-    if hook or "--session-start" in sys.argv or "--review-done" in sys.argv:
+    if hook or any(a in sys.argv for a in ("--session-start", "--review-done", "--pre-tool")):
         try:
             hook_in = json.load(sys.stdin)
         except Exception:
@@ -434,6 +502,8 @@ def main():
         session_start(hook_in)
     if "--review-done" in sys.argv:
         review_done(hook_in)
+    if "--pre-tool" in sys.argv:
+        pre_tool(hook_in)
     state = load_state()
     sid = hook_in.get("session_id", "default")
     sess = state.get("sessions", {}).get(sid) if hook else None
@@ -459,12 +529,26 @@ def main():
               "시스템 파일이 공개 템플릿에 반영되지 않았다: " + ", ".join(stale)
               + ". `python3 .claude/sync_template.py`를 실행하고, 유출 의심·예시 자료 오류가 나오면 고친 뒤 다시 실행하세요.",
               len(stale))
+    # 0-1) 세션 시작 때 있던 raw 파일이 바뀜 (Bash 경유 등 PreToolUse가 못 잡은 경로). Claude는 되돌릴 수 없으니
+    #      (raw 수정·git checkout 금지) 같은 상태로는 한 번만 막아 보고하게 하고, 커밋 제목에 표시를 남긴다.
+    raw_changed = raw_changes(sess["raw"]) if sess and "raw" in sess else []
+    prefix = "[raw 변경 — 사용자 확인 필요] " if raw_changed else ""
+    if raw_changed:
+        raw_fp = content_fp(raw_hashes())
+        if sess.get("raw_notified") != raw_fp:
+            sess["raw_notified"] = raw_fp
+            block(state, sid,
+                  f"이 세션 동안 기존 raw 파일 {len(raw_changed)}건이 바뀌었다 (절대 규칙 1: raw/는 불변). "
+                  "직접 되돌리지 마라 (raw 수정·git checkout 모두 금지). 사용자에게 ① 바뀐 파일 ② 원인(어느 명령인지, "
+                  "또는 세션 중 사용자가 Obsidian에서 고친 것인지) ③ 되돌리려면 사용자가 `git checkout HEAD -- <파일>`을 "
+                  "실행하면 된다는 것을 보고하라. 같은 상태로는 다시 막지 않고, 커밋 제목에 표시가 붙는다.\n- "
+                  + "\n- ".join(raw_changed[:30]), len(raw_changed))
     fp = wiki_fingerprint()
     if sess and sess["fp"] == fp:
         # 위키는 그대로 — 막지 않는다. .claude/ 설정 등 다른 변경이 있으면 이 세션 작업으로 커밋
-        finish(commit_session_work(), None)
+        finish(commit_session_work(prefix), None)
     if not sess and state.get("clean_fp") == fp and not errors:
-        finish(commit_session_work(), None)  # (SessionStart 기록이 없는 세션) 마지막 clean 이후 바뀐 게 없음
+        finish(commit_session_work(prefix), None)  # (SessionStart 기록이 없는 세션) 마지막 clean 이후 바뀐 게 없음
     pre = set(sess["pre"]) if sess else set()
     new = [e for e in errors if e not in pre]
 
@@ -498,7 +582,7 @@ def main():
 
     state.setdefault("loops", {}).pop(sid, None)  # 모두 통과: 이 세션의 차단 카운트 초기화
     save_state(state)
-    finish(commit_session_work(),
+    finish(commit_session_work(prefix),
            f"위키: 세션 시작 전부터 있던 규칙 위반 {len(errors)}건 — 사용자 확인 필요 (`python3 .claude/wiki_lint.py`)" if errors else None)
 
 

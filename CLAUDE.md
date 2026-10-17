@@ -20,7 +20,7 @@ Obsidian/
 .claude/
 ├── wiki_lint.py     ← 규칙 검사기 (§4 검증 루프)
 ├── agents/wiki-reviewer.md ← 의미 검토 서브에이전트
-└── settings.json    ← 검증 루프를 강제하는 hook (SessionStart·SubagentStop·Stop)
+└── settings.json    ← 검증 루프·raw 보호를 강제하는 hook (SessionStart·PreToolUse·SubagentStop·Stop)
 .git/                ← 로컬 기록 (원격 없음). `.gitignore`: 검사기 상태·Obsidian 화면 상태
 ```
 
@@ -34,6 +34,7 @@ Obsidian/
 
 ### 절대 규칙
 1. **raw/는 불변이다.** Claude는 raw/ 파일을 절대 수정·이동·삭제하지 않는다. (오타·파일명 규칙 위반을 발견하면 사용자에게 알리기만 한다.)
+   - hook이 지킨다: PreToolUse hook은 파일 도구로 기존 raw 파일을 고치거나 raw/ 안에 하위 폴더를 만드는 것을 거부한다(새 파일 저장은 허용). Bash 등으로 바뀐 것은 Stop hook이 세션 시작 때와 비교해 잡는다 — 그때는 되돌리지 말고(raw 수정·`git checkout` 금지) 바뀐 파일·원인·되돌리는 명령을 사용자에게 보고한다. 같은 상태로는 한 번만 막고, 커밋 제목에 `[raw 변경 — 사용자 확인 필요]`가 붙는다.
 2. **raw/와 wiki/ 모두 하위 폴더를 만들지 않는다.** 분류는 폴더가 아니라 `index.md`의 카테고리와 frontmatter의 `type`/`tags`(도메인 태그 포함, §3.2)로 한다.
 3. **wiki/는 Claude만 쓴다.** 사용자가 wiki 페이지를 직접 고친 흔적이 있으면 그 내용을 존중하고 덮어쓰지 않는다.
 4. 사실과 해석을 구분한다. 출처에 없는 내용을 사실처럼 쓰지 않는다. Claude의 추론·연결은 "해석:" 또는 `> [!note] 해석` 으로 표시한다.
