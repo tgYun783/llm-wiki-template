@@ -28,7 +28,7 @@ STATE = os.path.join(ROOT, ".claude", ".lint_state.json")
 META = ("index", "log")
 MAX_LOOPS = 5
 REVIEWER = "wiki-reviewer"
-# entity 생성 기준은 소급 적용하지 않는다 (CLAUDE.md §3.3): 검사 도입(2026-09-24) 전부터 있던 entity는 경고만
+# entity 생성 기준은 소급 적용하지 않는다 (.claude/rules/페이지-형식.md): 검사 도입(2026-09-24) 전부터 있던 entity는 경고만
 ENTITY_GRANDFATHERED = set()
 LOG_HEADER = re.compile(r"^## \[\d{4}-\d{2}-\d{2}\] (ingest|query|lint|schema) \| .+$")
 NUM = re.compile(r"\d+\.\d+%|\d+%|\$\d|\d(\.\d)?배")
@@ -187,7 +187,7 @@ def lint(log_base=None):
     # 5. 시점 표시 (휴리스틱이라 WARN)
     for k in content:
         _, body = split_fm(pages[k])
-        # source 페이지의 `## 기본 정보` 제목에 붙은 기준 표시는 페이지 전체에 적용 (CLAUDE.md §3.3)
+        # source 페이지의 `## 기본 정보` 제목에 붙은 기준 표시는 페이지 전체에 적용 (.claude/rules/페이지-형식.md)
         page_wide = k.startswith("요약-") and re.search(r"^## 기본 정보.*\(기준:", body, re.M)
         sec = False
         for line in body.split("\n"):
@@ -209,7 +209,7 @@ def lint(log_base=None):
                     E("[raw에 없는 인용문]", k, "|", seg.strip()[:60], "→ 원문 그대로 인용하거나, 번역·요약이면 인용 형식을 쓰지 않는다")
                     break
 
-    # 8. entity 생성 기준 (의미 검토 6번 중 기계로 되는 부분, CLAUDE.md §3.3)
+    # 8. entity 생성 기준 (의미 검토 6번 중 기계로 되는 부분, .claude/rules/페이지-형식.md)
     for k in content:
         fm, _ = split_fm(pages[k])
         if fm and re.search(r"^type: entity", fm, re.M):
