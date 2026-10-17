@@ -59,7 +59,7 @@ def links(text):
 
 
 def unprocessed_raw(pages):
-    """CLAUDE.md 건강검진 6번: 어떤 source 페이지의 `raw:`로도 연결되지 않은 raw 파일.
+    """`wiki-lint` 스킬 점검 항목 6번: 어떤 source 페이지의 `raw:`로도 연결되지 않은 raw 파일.
     첨부(이미지·PDF 등)는 log를 뺀 wiki 본문에서 파일명이 언급되면 처리된 것으로 본다."""
     linked = set()
     for t in pages.values():
