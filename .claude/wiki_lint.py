@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LLM 위키 규칙 검사기 (CLAUDE.md의 기계적으로 확인 가능한 규칙).
+"""LLM 위키 규칙 검사기 (CLAUDE.md·스킬·rules에 적힌 규칙 중 기계적으로 확인 가능한 것).
 
 사용:
   python3 .claude/wiki_lint.py          # 사람이 읽는 보고서. 오류가 있으면 exit 1
@@ -582,7 +582,7 @@ def main():
     # 1) 기계 검사: 이 세션이 만든 오류
     if new:
         block(state, sid,
-              f"CLAUDE.md 규칙 위반 {len(new)}건. "
+              f"위키 규칙 위반 {len(new)}건. "
               "고친 뒤 `python3 .claude/wiki_lint.py`로 오류 0을 확인하고, 의미 검토(wiki-reviewer 서브에이전트)까지 마친 다음 끝내세요. "
               "raw 파일명 위반이나 사용자가 직접 고친 내용은 고치지 말고 사용자에게 보고만 하세요.\n- "
               + "\n- ".join(new[:30]), len(new))

@@ -41,7 +41,7 @@ Obsidian/
 
 | 위치 | 형식 | 예시 |
 |---|---|---|
-| raw/ | `YYYY-MM-DD_설명.확장자` — 설명은 자유 (Web Clipper 제목 그대로 허용) | `2026-09-24_딥워크-3장-메모.md`, `2026-09-24_claude-plugins-officialpluginsralph-loopreadme.md-at-main.md` |
+| raw/ | `YYYY-MM-DD_설명.확장자` | `2026-09-24_딥워크-3장-메모.md`, `2026-09-24_claude-plugins-officialpluginsralph-loopreadme.md-at-main.md` |
 | wiki/ | 케밥케이스, 한글 허용, 공백 대신 `-` | `딥워크.md`, `second-brain.md`, `주간-회의-운영.md` |
 
 - raw는 **날짜 접두사 `YYYY-MM-DD_`만 필수**다. 뒤의 설명은 Web Clipper가 만든 제목(마침표·`-at-main.md` 같은 꼬리 포함)도 그대로 허용하고, 위반으로 보고하지 않는다.
@@ -91,17 +91,14 @@ frontmatter(YAML)는 **파일 맨 첫 줄**(`type`·`tags`·`created`·`updated`
 
 사용자의 말로 모드를 판단한다. 애매하면 짧게 확인한다.
 
-### 모드 1 — 자료 넣기 (Ingest)
-**트리거:** "자료 넣었어", "이거 정리해줘", "raw에 ○○ 추가했어", "ingest", URL/텍스트를 붙여넣으며 저장 요청 → **`wiki-ingest` 스킬**로 한다 (여러 건 일괄 포함).
+| 모드 | 사용자의 말 (트리거) | 스킬 |
+|---|---|---|
+| 자료 넣기 (Ingest) | "자료 넣었어", "이거 정리해줘", "raw에 ○○ 추가했어", "ingest", URL/텍스트를 붙여넣으며 저장 요청 (여러 건 일괄 포함) | `wiki-ingest` |
+| 질문하기 (Query) | 일반적인 질문, "○○에 대해 뭐 있었지?", "비교해줘", "정리해줘" | `wiki-query` |
+| 건강검진 (Lint) | "건강검진", "위키 점검", "lint", "정리 상태 확인" (점검 항목·보고 형식·조건부 규칙 포함) | `wiki-lint` |
+| 시스템 변경 | 규칙·검사기·hook·스킬·rules·리뷰어를 바꿀 때 (log `schema`, 공개 템플릿 반영 포함) | `wiki-system` |
 
-### 모드 2 — 질문하기 (Query)
-**트리거:** 일반적인 질문, "○○에 대해 뭐 있었지?", "비교해줘", "정리해줘" → **`wiki-query` 스킬**로 한다.
-
-### 모드 3 — 건강검진 (Lint)
-**트리거:** "건강검진", "위키 점검", "lint", "정리 상태 확인" → **`wiki-lint` 스킬**로 한다 (점검 항목 9개·보고 형식·조건부 규칙 포함).
-
-### 검증 루프
-위키를 수정한 작업(넣기, 건강검진 수정, 분석 페이지 저장, 규칙 변경)은 끝내기 전에 반드시 **`wiki-verify` 스킬**로 검증 루프(기계 검사 → `wiki-reviewer` 의미 검토 → log `- 검증:` 줄)를 돌린다. Stop hook이 이를 강제한다. `.claude/.lint_state.json`을 고치거나 영수증을 흉내 내지 않는다.
+**검증 루프** — 위키를 수정한 작업(넣기, 건강검진 수정, 분석 페이지 저장, 규칙 변경)은 끝내기 전에 반드시 **`wiki-verify` 스킬**로 검증 루프(기계 검사 → `wiki-reviewer` 의미 검토 → log `- 검증:` 줄)를 돌린다. Stop hook이 이를 강제한다. `.claude/.lint_state.json`을 고치거나 영수증을 흉내 내지 않는다.
 
 ---
 
@@ -118,5 +115,4 @@ frontmatter(YAML)는 **파일 맨 첫 줄**(`type`·`tags`·`created`·`updated`
 ---
 
 ## 7. 이 Schema의 진화
-- 규칙·검사기·hook·스킬·rules·리뷰어를 바꿀 때는 **`wiki-system` 스킬**로 한다 (log에 `schema` 기록, 공개 템플릿 반영 포함).
-- 조건부 규칙(도메인 개요 페이지·검색 도구·볼트 분리)은 `wiki-lint` 스킬에 있고 건강검진 때 확인한다.
+- 규칙을 바꾸는 절차는 `wiki-system` 스킬, 조건부 규칙(도메인 개요 페이지·검색 도구·볼트 분리)은 `wiki-lint` 스킬에 있다.
