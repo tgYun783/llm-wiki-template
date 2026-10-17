@@ -601,7 +601,7 @@ def main():
             block(state, sid,
                   f"이 세션이 위키 페이지를 바꿨는데 {why}. "
                   f"Agent 도구로 `{REVIEWER}` 서브에이전트를 불러 아래 페이지와 관련 raw 파일을 넘기고, "
-                  "보고된 문제를 고친 뒤 새 문제 0건이 나올 때까지 다시 검토받으세요 (CLAUDE.md §4 검증 루프 2). "
+                  "보고된 문제를 고친 뒤 새 문제 0건이 나올 때까지 다시 검토받으세요 (`wiki-verify` 스킬 2번). "
                   "직접 영수증을 만들지 마세요.\n- 바뀐 페이지: "
                   + ", ".join(f"wiki/{n}" for n in changed)
                   + (("\n- 삭제된 페이지: " + ", ".join(removed)) if removed else ""),
