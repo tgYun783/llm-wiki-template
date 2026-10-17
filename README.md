@@ -4,7 +4,7 @@
 
 사람은 자료를 넣고 질문만 합니다. 정리, 교차참조, 목차, 일관성 유지는 에이전트가 맡습니다. 에이전트가 규칙을 어기지 않도록 **검사기·리뷰어·hook**으로 이루어진 검증 루프가 작업 종료를 막습니다.
 
-> 이 저장소에는 시스템과 예시 자료 1건만 들어 있습니다. 실제로 쓰는 위키의 자료는 공개하지 않습니다.
+> 이 저장소에는 시스템만 들어 있고, `raw/`·`wiki/`는 빈 상태(빈 index·log)로 시작합니다. 자료 1건을 넣은 결과는 `examples/`에서 볼 수 있습니다. 실제로 쓰는 위키의 자료는 공개하지 않습니다.
 
 ## 특징
 
@@ -43,6 +43,7 @@ flowchart TD
 ├── wiki/                         ← 정리된 지식 (에이전트가 관리)
 │   ├── index.md                  ← 전체 목차
 │   └── log.md                    ← 작업 이력 (append-only)
+├── examples/                     ← 자료 1건을 넣은 결과 예시 (참고용, 검사 대상 아님)
 └── .claude/
     ├── skills/                   ← 절차 (그 일을 할 때 불림)
     │   ├── wiki-ingest/          ← 자료 넣기 (references/에 자료 유형별 틀·일괄 처리)
@@ -60,20 +61,20 @@ flowchart TD
 
 필요한 것: [Claude Code](https://claude.com/claude-code), Python 3, (선택) [Obsidian](https://obsidian.md)
 
-clone 직후, `claude`나 검사기를 **한 번도 실행하기 전에** 예시 자료를 지웁니다.
+위키는 빈 상태로 들어 있으니 clone하고 바로 시작하면 됩니다.
 
 ```bash
 git clone <이 저장소> my-wiki
 cd my-wiki
 git remote remove origin   # (선택) 이 템플릿 저장소와 연결을 끊음 — 위키는 로컬 기록용
-rm raw/2026-09-24_예시-메모-습관.md wiki/요약-메모-습관.md wiki/하루-한-줄-메모.md
 ```
 
-그다음 두 파일에서 예시 부분만 지웁니다 (파일은 남깁니다).
-- `wiki/index.md`: 예시 항목 두 줄(`[[요약-메모-습관]]`, `[[하루-한-줄-메모]]`)을 지우고, 페이지·자료 수를 `0`으로
-- `wiki/log.md`: `## [2026-09-24] ingest | (예시) …` 항목 전체
+- **git이 필요합니다.** hook이 세션마다 사용자 변경과 에이전트 작업을 커밋합니다. ZIP으로 받았다면 폴더에서 `git init && git add -A && git commit -m "시작"`을 먼저 실행하세요 (git이 없어도 위키는 동작하지만 기록이 남지 않습니다).
+- 템플릿의 커밋 이력 없이 시작하고 싶으면: `rm -rf .git && git init && git add -A && git commit -m "시작"`
+- **도메인을 먼저 바꿉니다.** `CLAUDE.md` §3.2의 "현재 도메인" 줄은 예시입니다. 자기 관심 분야로 바꾸세요 (아래 "내 것으로 바꾸기").
+- `examples/`는 참고용입니다. 다 봤으면 지워도 됩니다.
 
-그리고 `claude`를 실행합니다. log의 append-only 기준(`.claude/.lint_state.json`, git에 올리지 않는 파일)은 검사기가 오류 0으로 처음 끝날 때 잡히므로, 정리를 마친 뒤 처음 실행해야 합니다. 이미 실행했다면 `.claude/.lint_state.json`을 지우고 다시 시작합니다.
+그리고 `claude`를 실행합니다.
 
 1. Obsidian에서 이 폴더를 볼트로 엽니다 (선택).
 2. 자료를 `raw/YYYY-MM-DD_설명.md`로 넣습니다. Obsidian Web Clipper를 쓰면 편합니다.
