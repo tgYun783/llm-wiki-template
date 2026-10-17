@@ -24,7 +24,7 @@ Obsidian/
 .git/                ← 로컬 기록 (원격 없음). `.gitignore`: 검사기 상태·Obsidian 화면 상태
 ```
 
-**git (로컬 기록)** — hook이 커밋한다(세션 시작 때 사용자 변경, 끝낼 때 이 세션 작업). Claude는 `git commit`·`reset`·`checkout`·`rebase`·`push` 등을 직접 하지 않고(되돌리기는 사용자에게 묻는다, 조회는 해도 된다), hook 메시지가 알려 주는 대로 따른다. 세부와 공개 템플릿 동기화는 `wiki-system` 스킬.
+**git (로컬 기록)** — hook이 커밋한다(세션 시작 때 사용자 변경, 끝낼 때 이 세션 작업). Claude는 `git commit`·`reset`·`checkout`·`rebase`·`push` 등을 직접 하지 않고(되돌리기는 사용자에게 묻는다, 조회는 해도 된다), hook 메시지가 알려 주는 대로 따른다. 세부는 `wiki-system` 스킬.
 
 - 전역 규칙 `~/.claude/CLAUDE.md`가 이 위키와 함께 동작한다: 어느 폴더의 세션이든 정보 조회 시 위키를 먼저 보고, **볼트 밖 세션은 위키를 읽기만** 한다(반영은 "위키에 넣을까요?" 제안). 위키 수정은 이 볼트에서 연 세션에서만 한다.
 
@@ -96,7 +96,7 @@ frontmatter(YAML)는 **파일 맨 첫 줄**(`type`·`tags`·`created`·`updated`
 | 자료 넣기 (Ingest) | "자료 넣었어", "이거 정리해줘", "raw에 ○○ 추가했어", "ingest", URL/텍스트를 붙여넣으며 저장 요청 (여러 건 일괄 포함) | `wiki-ingest` |
 | 질문하기 (Query) | 일반적인 질문, "○○에 대해 뭐 있었지?", "비교해줘", "정리해줘" | `wiki-query` |
 | 건강검진 (Lint) | "건강검진", "위키 점검", "lint", "정리 상태 확인" (점검 항목·보고 형식·조건부 규칙 포함) | `wiki-lint` |
-| 시스템 변경 | 규칙·검사기·hook·스킬·rules·리뷰어를 바꿀 때 (log `schema`, 공개 템플릿 반영 포함) | `wiki-system` |
+| 시스템 변경 | 규칙·검사기·hook·스킬·rules·리뷰어를 바꿀 때 (log `schema` 포함) | `wiki-system` |
 
 **검증 루프** — 위키를 수정한 작업(넣기, 건강검진 수정, 분석 페이지 저장, 규칙 변경)은 끝내기 전에 반드시 **`wiki-verify` 스킬**로 검증 루프(기계 검사 → `wiki-reviewer` 의미 검토 → log `- 검증:` 줄)를 돌린다. Stop hook이 이를 강제한다. `.claude/.lint_state.json`을 고치거나 영수증을 흉내 내지 않는다.
 
