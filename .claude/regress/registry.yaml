@@ -1,0 +1,23 @@
+# 회귀 스위트 레지스트리 — 형식은 README.md "registry.yaml" 절
+# 파일 경로는 케이스가 아니라 여기 한 곳에 둔다. 파일 이름이 바뀌면 여기만 고친다.
+
+components:
+  schema: [CLAUDE.md]
+  rules-page-format: [.claude/rules/페이지-형식.md]
+  wiki-reviewer: [.claude/agents/wiki-reviewer.md]
+  lint: [.claude/wiki_lint.py]
+  hooks: [.claude/settings.json]
+  wiki-ingest: [.claude/skills/wiki-ingest/**]
+  wiki-verify: [.claude/skills/wiki-verify/**]
+  wiki-lint: [.claude/skills/wiki-lint/**]
+  wiki-query: [.claude/skills/wiki-query/**]
+  wiki-system: [.claude/skills/wiki-system/**]
+
+# 이것이 바뀌면 B층 전체 실행
+broad: [wiki-reviewer, schema]
+
+# 허용 목록 — 새 값은 여기 먼저 추가. 지금은 예시 케이스가 쓰는 것만 있다
+failure_classes:
+  recommendation-strength-loss: 원문 권고 강도(must·should·recommend·can)가 약해지거나 세짐
+  # A층 — 검사기가 지켜야 할 동작
+  quote-normalization: 따옴표 종류만 다른 인용은 통과, raw에 없는 인용은 오류
