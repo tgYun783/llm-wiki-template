@@ -526,6 +526,28 @@ def last_assistant_text(path):
     return found
 
 
+REGRESS_BASE = "/tmp/wiki-regress/"   # 회귀 스위트 미니 볼트 (.claude/regress/run.py VAULT_BASE)
+
+
+def regress_request(path):
+    """하위 에이전트 대화 기록의 첫 user 레코드(부모가 넘긴 요청문)에 회귀 미니 볼트 경로가 있는가.
+    있으면 회귀 실행이라 실제 볼트에 영수증을 남기지 않는다 (호출 단위 판별 — .claude/regress/plan.md)."""
+    if not path or not os.path.exists(path):
+        return False
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if rec.get("type") != "user":
+                continue
+            content = (rec.get("message") or {}).get("content") or ""
+            if not isinstance(content, str):
+                content = "\n".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text")
+            return REGRESS_BASE in content
+    return False
+
 
 def review_done(hook_in):
     """SubagentStop: wiki-reviewer가 끝나면 '이 위키 내용에 대해 문제 N건' 영수증을 남긴다."""
@@ -536,6 +558,9 @@ def review_done(hook_in):
     if not m:
         if not hook_in.get("stop_hook_active"):
             print(json.dumps({"decision": "block", "reason": "출력 마지막 줄에 `REVIEW-RESULT: issues=N`을 적어라 (에이전트 정의의 출력 형식)."}, ensure_ascii=False))
+        sys.exit(0)
+    # last_assistant_message가 있어도 기록은 따로 연다 — 회귀 실행의 영수증은 실제 위키 해시에 남기지 않는다
+    if regress_request(hook_in.get("agent_transcript_path")):
         sys.exit(0)
     state = load_state()
     reviews = state.setdefault("reviews", {})
