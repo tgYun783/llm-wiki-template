@@ -9,6 +9,8 @@
   python3 .claude/wiki_lint.py --pre-tool       # PreToolUse hook: raw/ 기존 파일 수정·하위 폴더 생성 거부
   python3 .claude/wiki_lint.py --status SID     # 상태 JSON (읽기 전용, 상태 파일을 쓰지 않음 — 상태 표시 mod용)
 
+A층 회귀: 검사기·CLAUDE.md가 세션 시작 때와 달라졌으면 Stop hook이 `.claude/regress/run.py A` 통과 전에는 끝내지 못하게 한다.
+
 git (로컬 전용): 세션 시작 때 사용자 변경을 따로 커밋하고, Stop hook을 통과하면 이 세션 작업을 커밋한다.
 
 ERROR  = 규칙 위반. 검증 루프에서 0이 될 때까지 고친다.
@@ -28,6 +30,7 @@ STATE = os.path.join(ROOT, ".claude", ".lint_state.json")
 META = ("index", "log")
 MAX_LOOPS = 5
 REVIEWER = "wiki-reviewer"
+SYSTEM_FILES = (".claude/wiki_lint.py", "CLAUDE.md")  # 바뀌면 A층 회귀를 강제하는 파일 (A층은 둘을 복사해 쓴다)
 # entity 생성 기준은 소급 적용하지 않는다 (.claude/rules/페이지-형식.md): 검사 도입(2026-09-24) 전부터 있던 entity는 경고만
 ENTITY_GRANDFATHERED = set()
 LOG_HEADER = re.compile(r"^## \[\d{4}-\d{2}-\d{2}\] (ingest|query|lint|schema) \| .+$")
@@ -403,6 +406,33 @@ def pre_tool(hook_in):
     sys.exit(0)
 
 
+def system_hash():
+    """A층 회귀가 기대는 파일(SYSTEM_FILES)의 내용 해시. 없는 파일은 빈 내용으로 친다."""
+    h = hashlib.sha256()
+    for rel in SYSTEM_FILES:
+        p = os.path.join(ROOT, rel)
+        h.update(rel.encode())
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                h.update(hashlib.sha256(f.read()).digest())
+    return h.hexdigest()
+
+
+def regress_a_failures():
+    """A층 회귀(`.claude/regress/run.py A`)를 돌린다. 러너가 없으면 None, 통과하면 [], 아니면 보고할 줄 목록."""
+    path = os.path.join(ROOT, ".claude", "regress", "run.py")
+    if not os.path.exists(path):
+        return None
+    try:
+        r = subprocess.run([sys.executable, path, "A"], capture_output=True, text=True, timeout=20)
+    except Exception as e:
+        return [f"A층 러너 실행 실패: {e}"]
+    if r.returncode == 0:
+        return []
+    out = (r.stdout + r.stderr).splitlines()
+    return [l for l in out if l.startswith(("FAIL ", "A층:"))] or out[-15:] or [f"A층 러너 종료 코드 {r.returncode}"]
+
+
 def template_stale():
     """공개 템플릿 동기화 스크립트(.claude/sync_template.py)가 있으면, 템플릿에 반영 안 된 시스템 파일 목록."""
     path = os.path.join(ROOT, ".claude", "sync_template.py")
@@ -481,7 +511,7 @@ def session_start(hook_in):
     errors, _, log = lint()
     sessions[sid] = {
         "fp": wiki_fingerprint(), "pre": errors, "log_len": len(log), "log_sha": sha(log),
-        "pages": page_hashes(), "raw": raw_hashes(),
+        "pages": page_hashes(), "raw": raw_hashes(), "system": system_hash(),
     }
     for old in list(sessions)[:-20]:
         del sessions[old]
@@ -651,13 +681,24 @@ def main():
         sys.exit(1 if errors else 0)
 
     # --- Stop hook 모드 (Ralph 루프) ---
-    # 0) 시스템 파일(규칙·검사기·hook·리뷰어)이 바뀌었는데 공개 템플릿에 반영 안 됨
+    # 0) 검사기·CLAUDE.md가 세션 시작 때와 다름 → A층 회귀 통과 전에는 끝낼 수 없다.
+    #    (스냅샷에 "system"이 없는 세션은 이 기능 이전에 시작된 것이라 보지 않는다. 검사기 문법 오류는 이 hook 자체가
+    #    실패해 막지 못한다 — Claude Code가 hook 오류를 사용자에게 보여 주는 것으로 갈음.)
+    if sess and "system" in sess and sess["system"] != system_hash():
+        fails = regress_a_failures()
+        if fails:
+            block(state, sid,
+                  "이 세션이 검사기(`.claude/wiki_lint.py`)나 `CLAUDE.md`를 바꿨는데 A층 회귀가 통과하지 않는다. "
+                  "`python3 .claude/regress/run.py A`로 실패 케이스를 확인해, 검사기가 틀렸으면 검사기를, "
+                  "케이스 기대가 바뀐 규칙과 어긋나면 사용자에게 물은 뒤 케이스를 고치고 다시 돌리세요 (`wiki-system` 스킬 \"회귀 스위트\").\n- "
+                  + "\n- ".join(fails[:30]), len([l for l in fails if l.startswith("FAIL ")]) or 1)
+    # 0-1) 시스템 파일(규칙·검사기·hook·리뷰어)이 바뀌었는데 공개 템플릿에 반영 안 됨
     if stale:
         block(state, sid,
               "시스템 파일이 공개 템플릿에 반영되지 않았다: " + ", ".join(stale)
               + ". `python3 .claude/sync_template.py`를 실행하고, 유출 의심·예시 자료 오류가 나오면 고친 뒤 다시 실행하세요.",
               len(stale))
-    # 0-1) 세션 시작 때 있던 raw 파일이 바뀜 (Bash 경유 등 PreToolUse가 못 잡은 경로). Claude는 되돌릴 수 없으니
+    # 0-2) 세션 시작 때 있던 raw 파일이 바뀜 (Bash 경유 등 PreToolUse가 못 잡은 경로). Claude는 되돌릴 수 없으니
     #      (raw 수정·git checkout 금지) 같은 상태로는 한 번만 막아 보고하게 하고, 커밋 제목에 표시를 남긴다.
     raw_changed = raw_changes(sess["raw"]) if sess and "raw" in sess else []
     prefix = "[raw 변경 — 사용자 확인 필요] " if raw_changed else ""
