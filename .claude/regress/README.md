@@ -133,7 +133,7 @@ must_not_detect:
 | `components`·`files` | 둘 다 비면 오류 (선택기가 고를 수 없음). `files`는 실제로 있어야 함 |
 | `## 기대` (B층) | `reviewer_items`(all-of — 모두 보고돼야 함) 또는 `reviewer_items_any`(any-of — 하나 이상 보고되면 됨) 중 하나 이상 필수(음성은 `reviewer_items: []`). `reviewer_items_any`는 리뷰어가 같은 결함을 실행마다 다른 항목으로 보고할 때만 쓰고, 비우지 않는다. 둘 다 있으면 둘 다 만족해야 한다. 양성(어느 쪽이든 항목 있음)은 `must_detect`, 음성은 `must_not_detect`가 비면 오류. 항목 번호는 리뷰어 정의의 검토 항목 범위 안. 그 밖의 논리식은 두지 않는다 |
 | `## 기대` (A층) | runner마다 다름 — 아래 "A층 runner" |
-| `## 파일: <경로>` | 경로는 `wiki/<이름>` 또는 `raw/<이름>`만 (하위 폴더 없음 — 볼트 규칙과 같음. A층 `hook-review-done`은 `hook/<이름>`도). 내용은 제목 바로 아래 `~~~~` 울타리 안. 같은 경로 두 번 금지 |
+| `## 파일: <경로>` | 경로는 `wiki/<이름>` 또는 `raw/<이름>`만 (하위 폴더 없음 — 볼트 규칙과 같음. A층 `hook-review-done`은 `hook/<이름>`, `lint-git`은 `base/<이름>`도). 내용은 제목 바로 아래 `~~~~` 울타리 안. 같은 경로 두 번 금지 |
 | B층 | `wiki/` 파일 칸이 1개 이상 (검토할 페이지). 상충·들어오는 링크 판단(리뷰어 항목 5·8)이 필요하면 비교 대상 페이지도 넣는다 |
 | `## 변형: <이름>` | 안에서는 `###` 제목. 파일 칸 1개 이상. `### 기대`가 없으면 본 케이스 기대를 쓴다. `### 수정한 페이지`(`- wiki/<이름>` 줄 목록, 본 케이스 칸 포함 가능)가 없으면 본 케이스 것을 쓴다 |
 | `## 메모` | 자유 형식 |
@@ -148,6 +148,7 @@ must_not_detect:
 |---|---|---|---|
 | `lint` | `wiki_lint.py` (기계 검사) | `wiki/`·`raw/` | `must_output`(나와야 할 출력 줄의 일부)·`must_not_output`(나오면 안 되는 줄) 중 하나 이상 |
 | `hook-review-done` | `wiki_lint.py --review-done` (SubagentStop hook) | `wiki/`·`raw/`·`hook/`. `hook/input.json`(hook stdin) 필수, `hook/transcript.jsonl` 등 선택 | `receipt` 필수 — 기록될 영수증의 issues 값, 영수증이 남지 않아야 하면 `null`. stdout은 `must_output`·`must_not_output`(선택) |
+| `lint-git` | `wiki_lint.py` (기계 검사) — 임시 폴더를 git 저장소로 만들어 `base/` 칸을 커밋한 뒤 `wiki/`·`raw/` 칸을 덮어쓴다(= 커밋 안 된 변경). 검사기의 "오늘"은 `WIKI_LINT_TODAY=2026-01-15`(`run.py` `A_TODAY`)로 고정 | `wiki/`·`raw/`·`base/`. `base/<이름>`은 커밋된 `wiki/<이름>`. 빈 `raw/`는 러너가 만든다 | `lint`와 같음 |
 
 - `hook/input.json` 안의 `hook/…` 상대 경로는 러너가 임시 폴더의 절대 경로로 바꿔 넘긴다.
 

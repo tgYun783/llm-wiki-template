@@ -40,7 +40,10 @@ RUNNERS = {
     "lint": {"prefixes": ("wiki/", "raw/"), "expect": ("must_output", "must_not_output")},
     "hook-review-done": {"prefixes": ("wiki/", "raw/", "hook/"), "expect": ("receipt", "must_output", "must_not_output"),
                          "required": ("hook/input.json",)},
+    # base/<이름> = 커밋된 wiki/<이름>. 러너가 임시 폴더를 git 저장소로 만들어 base를 커밋한 뒤 wiki/·raw/ 칸을 덮어쓴다
+    "lint-git": {"prefixes": ("wiki/", "raw/", "base/"), "expect": ("must_output", "must_not_output")},
 }
+A_TODAY = "2026-01-15"   # lint-git: 검사기의 "오늘"(WIKI_LINT_TODAY) — 케이스가 날짜를 고정해 쓸 수 있게
 B_PREFIXES = ("wiki/", "raw/")
 META_REQUIRED = ("id", "층", "failure_class", "원인판정", "출처", "components", "private")
 META_KEYS = META_REQUIRED + ("files", "runner", "내릴 수 있나", "precheck", "수정한 페이지")
@@ -408,7 +411,7 @@ def mkvault(case_id, run_id=None, variant=None, headless=False, regress=REGRESS,
 
 
 A_USAGE = "사용법: run.py A [<case> ...] [--root DIR] [--lint FILE]"
-A_ARGV = {"lint": [], "hook-review-done": ["--review-done"]}   # runner → 검사기 인자
+A_ARGV = {"lint": [], "hook-review-done": ["--review-done"], "lint-git": []}   # runner → 검사기 인자
 
 
 def load_a_cases(regress):
@@ -464,6 +467,23 @@ def read_receipt(tmp):
     return (vals[0] if vals else None), None
 
 
+def git_base(tmp, base):
+    """lint-git: tmp를 git 저장소로 만들고 base(이름 → 내용)를 wiki/에 써서 커밋한다. 실패 이유(없으면 None).
+    CLAUDE.md·검사기도 함께 커밋해 '커밋 안 된 변경'에는 케이스의 wiki/·raw/ 칸만 남게 한다."""
+    for d in ("wiki", "raw"):  # 빈 raw/도 볼트의 정상 상태 — 검사기는 두 폴더가 있어야 돈다
+        os.makedirs(os.path.join(tmp, d), exist_ok=True)
+    for name, content in base.items():
+        with open(os.path.join(tmp, "wiki", name), "w", encoding="utf-8") as f:
+            f.write(content)
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=regress", "-c", "user.email=regress@example.invalid",
+                  "commit", "-q", "--allow-empty", "-m", "base"]):
+        p = subprocess.run(["git", "-C", tmp] + args, capture_output=True, text=True)
+        if p.returncode != 0:
+            return f"git {args[0] if args[0] != '-c' else 'commit'} 실패: {p.stderr.strip()}"
+    return None
+
+
 def run_a_one(runner, files, exp, root, lint):
     """임시 폴더에 파일 칸을 펼치고 검사기 복사본을 돌린다. 실패 이유(없으면 None)."""
     tmp = tempfile.mkdtemp(prefix="wiki-regress-a-")
@@ -471,6 +491,13 @@ def run_a_one(runner, files, exp, root, lint):
         os.makedirs(os.path.join(tmp, ".claude"))
         shutil.copy2(os.path.join(root, "CLAUDE.md"), os.path.join(tmp, "CLAUDE.md"))
         shutil.copy2(lint, os.path.join(tmp, ".claude", "wiki_lint.py"))
+        env = None
+        if runner == "lint-git":
+            why = git_base(tmp, {rel[len("base/"):]: c for rel, c in files.items() if rel.startswith("base/")})
+            if why:
+                return why
+            files = {rel: c for rel, c in files.items() if not rel.startswith("base/")}
+            env = dict(os.environ, WIKI_LINT_TODAY=A_TODAY)
         for rel, content in files.items():
             os.makedirs(os.path.dirname(os.path.join(tmp, rel)), exist_ok=True)
             with open(os.path.join(tmp, rel), "w", encoding="utf-8") as f:
@@ -482,7 +509,7 @@ def run_a_one(runner, files, exp, root, lint):
             except ValueError as e:
                 return f"hook/input.json이 JSON이 아님: {e}"
         p = subprocess.run([sys.executable, os.path.join(tmp, ".claude", "wiki_lint.py")] + A_ARGV[runner],
-                           cwd=tmp, input=stdin, capture_output=True, text=True, timeout=60)
+                           cwd=tmp, input=stdin, capture_output=True, text=True, timeout=60, env=env)
         reasons = []
         if runner == "hook-review-done":
             got, why = read_receipt(tmp)

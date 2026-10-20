@@ -16,6 +16,7 @@ git (로컬 전용): 세션 시작 때 사용자 변경을 따로 커밋하고, 
 ERROR  = 규칙 위반. 검증 루프에서 0이 될 때까지 고친다.
 WARN   = 판단이 필요한 항목. 보고만 하고 루프를 막지 않는다.
 """
+import datetime
 import hashlib
 import json
 import os
@@ -61,6 +62,25 @@ def links(text):
     return set(l.strip() for l in re.findall(r"\[\[([^\]|#]+)", text))
 
 
+def section_links(text):
+    """`[[페이지#제목]]` 꼴 섹션 링크의 (페이지, 제목). 블록 참조(`#^id`)는 뺀다.
+    제목 안에 코드 표기가 올 수 있어(`` [[p#`NotPrincipal` 쓰지 않기]] ``) 백틱은 지우지 않고 비교 때 뗀다."""
+    out = []
+    for p, s in re.findall(r"\[\[([^\]|#]+)#([^\]|]+)", text):
+        s = s.split("#")[-1]
+        if not s.strip().startswith("^"):
+            out.append((p.strip(), norm_heading(s)))
+    return out
+
+
+def norm_heading(s):
+    return re.sub(r"\s+", " ", s.replace("`", "")).strip()
+
+
+def headings(text):
+    return {norm_heading(h) for h in re.findall(r"^#{1,6}\s+(.+?)\s*$", text, re.M)}
+
+
 def unprocessed_raw(pages):
     """`wiki-lint` 스킬 점검 항목 6번: 어떤 source 페이지의 `raw:`로도 연결되지 않은 raw 파일.
     첨부(이미지·PDF 등)는 log를 뺀 wiki 본문에서 파일명이 언급되면 처리된 것으로 본다."""
@@ -94,16 +114,13 @@ def system_names(path):
             ".claude/sync_template.py": "sync_template.py"}.get(path)
 
 
-def dependents(pages):
-    """`wiki-verify` 1단계의 의존 확인: 커밋 안 된 변경(세션 시작 때 사용자 변경은 따로 커밋되므로 이 세션 작업)마다
-    그것에 기대는 페이지 중 이번에 손대지 않은 곳을 한 줄로 돌려준다. 그래프는 기존 데이터에서 뽑는다.
-    - 바뀐 wiki 페이지 X ← frontmatter `sources`에 X가 있는 페이지, X가 `요약-`이면 본문에서 X를 인용한 페이지도
-    - 바뀐 시스템 파일 ← 그 이름(스킬 이름, `wiki_lint.py` 등)을 언급한 concept·topic 등 (요약 페이지는 그 시점 기록이라 제외).
-      `CLAUDE.md`는 흔한 이름이라 '위키'·'볼트'와 같은 줄에 나올 때만"""
+def uncommitted():
+    """커밋 안 된 변경 (wiki 페이지 이름 집합 changed·new, 그 밖의 경로는 changed에 경로 그대로).
+    세션 시작 때 사용자 변경은 따로 커밋되고 Stop hook이 턴마다 커밋하므로, 이것이 이 세션(턴) 작업이다."""
     out_ = git("status", "--porcelain", "-z", "--untracked-files=all")
-    if not out_:
-        return []
     changed, new = set(), set()
+    if not out_:
+        return changed, new
     parts, skip = out_.split("\0"), False
     for e in parts:
         if skip or len(e) <= 3:
@@ -115,6 +132,16 @@ def dependents(pages):
             (new if st == "??" else changed).add(p[5:-3])
         else:
             changed.add(p)
+    return changed, new
+
+
+def dependents(pages):
+    """`wiki-verify` 1단계의 의존 확인: 커밋 안 된 변경(세션 시작 때 사용자 변경은 따로 커밋되므로 이 세션 작업)마다
+    그것에 기대는 페이지 중 이번에 손대지 않은 곳을 한 줄로 돌려준다. 그래프는 기존 데이터에서 뽑는다.
+    - 바뀐 wiki 페이지 X ← frontmatter `sources`에 X가 있는 페이지, X가 `요약-`이면 본문에서 X를 인용한 페이지도
+    - 바뀐 시스템 파일 ← 그 이름(스킬 이름, `wiki_lint.py` 등)을 언급한 concept·topic 등 (요약 페이지는 그 시점 기록이라 제외).
+      `CLAUDE.md`는 흔한 이름이라 '위키'·'볼트'와 같은 줄에 나올 때만"""
+    changed, new = uncommitted()
     touched = changed | new
     out = []
     srcs = {}
@@ -229,7 +256,7 @@ def lint(log_base=None):
         if not re.match(r"^\d{4}-\d{2}-\d{2}_.+\.\w+$", n):
             W("[raw 파일명 규칙 위반]", n, "(raw는 Claude가 고치지 않음 — 사용자에게 알림)")
 
-    # 2·3. 고아 / 빨간 링크
+    # 2·3. 고아 / 빨간 링크 / 섹션 링크 대상
     inbound = {k: set() for k in pages}
     for k, t in pages.items():
         for l in links(t):
@@ -238,6 +265,13 @@ def lint(log_base=None):
                     inbound[l].add(k)
             elif k != "log" and not os.path.isfile(os.path.join(RAW, l)):  # raw 첨부 임베드는 링크 대상
                 W("[빨간 링크]", k, "→", l)
+    # 섹션 링크: 페이지는 있는데 그 제목이 없음 (Obsidian은 제목 전체가 같아야 이동 — 꼬리 "(기준: …)"까지)
+    for k, t in pages.items():
+        if k == "log":
+            continue
+        for p, s in section_links(t):
+            if p in pages and s not in headings(pages[p]):
+                W("[섹션 링크 대상 없음]", k, "→", f"{p}#{s}")
     for k, src in inbound.items():
         if k not in META and not (src - set(META)):
             E("[고아 페이지]", k)
@@ -294,6 +328,18 @@ def lint(log_base=None):
             if n_src < 2 and n_in < 2:
                 (W if k in ENTITY_GRANDFATHERED else E)("[entity 생성 기준 미달]", k, f"자료 {n_src}건 · 들어오는 링크 {n_in}곳",
                   "→ 상위 페이지의 섹션으로 두고 섹션 링크를 건다")
+
+    # 10. updated 갱신 (CLAUDE.md §3.3): 커밋 안 된 변경(= 이 세션 작업)으로 바뀐 페이지는 updated가 오늘이어야 한다.
+    #     log는 작업마다 맨 아래에 붙이는 기록이라 제외. 오늘은 WIKI_LINT_TODAY로 고정할 수 있다(회귀 A층 lint-git)
+    today = os.environ.get("WIKI_LINT_TODAY") or datetime.date.today().isoformat()
+    ch, nw = uncommitted()
+    for k in sorted((ch | nw) & set(pages)):
+        if k == "log":
+            continue
+        fm, _ = split_fm(pages[k])
+        um = re.search(r"^updated: *(\S+)", fm or "", re.M)
+        if um and um.group(1) != today:
+            E("[updated 갱신 누락]", k, f"updated {um.group(1)} → 이번에 바꿨으면 {today}")
 
     # 9. 의존 확인 (판단 항목이라 WARN): 아직 커밋 안 된 변경(= 이 세션 작업)에 기대는 페이지 중 손대지 않은 곳
     for line in dependents(pages):

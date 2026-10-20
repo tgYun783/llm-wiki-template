@@ -825,6 +825,68 @@ with open("wiki/index.md", "w", encoding="utf-8") as f:
 """
 
 
+FAKE_GIT_LINT = """import os, subprocess
+print(subprocess.run(["git", "-c", "core.quotepath=false", "status", "--porcelain", "--untracked-files=all"], capture_output=True, text=True).stdout)
+print("TODAY=" + os.environ.get("WIKI_LINT_TODAY", ""))
+"""
+GIT_BODY = """
+## 기대
+must_output:
+- " M wiki/가.md"
+- "?? wiki/나.md"
+- "TODAY=2026-01-15"
+must_not_output:
+- "라.md"
+- "CLAUDE.md"
+- "wiki_lint.py"
+
+## 파일: base/가.md
+~~~~
+옛 내용
+~~~~
+
+## 파일: base/라.md
+~~~~
+그대로
+~~~~
+
+## 파일: wiki/가.md
+~~~~
+새 내용
+~~~~
+
+## 파일: wiki/나.md
+~~~~
+새 페이지
+~~~~
+"""
+
+
+class RunAGitTest(ValidateTest):
+    a = RunATest.a
+
+    def setUp(self):
+        super().setUp()
+        self.write(".claude/wiki_lint.py", FAKE_GIT_LINT)
+
+    # base/는 커밋된 상태, wiki/ 칸은 그 위의 커밋 안 된 변경 — 검사기에는 바뀐·새 페이지만 보이고 오늘은 A_TODAY로 고정
+    def test_lint_git_commits_base_then_overlays(self):
+        self.add("a-git", case_text(A_FM, GIT_BODY, id="a-git", runner="lint-git"))
+        code, lines = self.a()
+        self.assertIn("PASS a-git", lines)
+        self.assertEqual(code, 0)
+
+    # base/는 lint-git에만 — 다른 runner에서는 경로 오류
+    def test_base_only_for_lint_git(self):
+        self.add("a-git", case_text(A_FM, GIT_BODY, id="a-git", runner="lint"))
+        self.assertError("파일 경로는")
+
+    # lint-git도 기대 칸 규칙은 lint와 같다 — receipt는 알 수 없는 키
+    def test_lint_git_rejects_receipt(self):
+        self.add("a-git", case_text(A_FM, GIT_BODY.replace("## 기대\n", "## 기대\nreceipt: 0\n"), id="a-git", runner="lint-git"))
+        self.assertError("알 수 없는 키: receipt")
+
+
 class RunAIsolationTest(ValidateTest):
     a = RunATest.a
     a_case = RunATest.a_case
