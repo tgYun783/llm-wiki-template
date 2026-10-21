@@ -100,6 +100,10 @@ GitHub 계정 `tgYun783`이 혼자 관리하는 개인 프로젝트입니다.
 
 기여하려면 먼저 Issue로 제안한 뒤 Pull Request를 보내 주세요. 규칙이나 검사기를 바꾸는 기여는 회귀 스위트 A층(`python3 .claude/regress/run.py A`)을 통과해야 합니다.
 
+## 라이선스
+
+[MIT License](LICENSE)로 배포합니다.
+
 ## 영감
 
 - Andrej Karpathy의 "LLM Wiki" 아이디어: RAG로 매번 원문을 찾는 대신, LLM이 계속 관리하는 누적형 위키
