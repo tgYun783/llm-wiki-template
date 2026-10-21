@@ -26,15 +26,18 @@ RAG처럼 질문할 때마다 원문을 다시 찾는 대신, 자료를 넣을 �
 
 ```mermaid
 flowchart TD
-    A[raw/에 자료 넣기] --> B[Claude Code: 자료 넣기 모드]
+    A[raw/에 자료 넣기] --> B[Claude Code: 자료 넣기 모드<br/>메트릭 측정 시작]
     B --> C[요약 페이지 작성]
     C --> D[관련 개념, 인물, 주제 페이지 생성/수정<br/>양방향 링크, index, log]
-    D --> E{wiki_lint.py<br/>오류 0?}
+    D --> E{wiki_lint.py<br/>오류 0?<br/>의존 확인 경고 검토}
     E -- 아니오 --> D
     E -- 예 --> F{wiki-reviewer<br/>새 문제 0건?}
     F -- 아니오 --> D
-    F -- 예 --> H[log에 검증 줄]
-    H --> G[Stop hook 통과 → git 커밋]
+    F -- 예 --> H[log에 검증 줄<br/>메트릭 기록]
+    H --> S{Stop hook<br/>검증 결과 확인}
+    S -- 미통과 --> D
+    S -- 통과 --> G[git 커밋]
+    S -- 5회 넘김 --> X[멈추고 보고<br/>검증 미통과 커밋]
 ```
 
 ## 구조
